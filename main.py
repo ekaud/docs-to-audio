@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import List, Literal
 
+from dotenv import load_dotenv
 import gradio as gr
 import sentry_sdk
 from fastapi import FastAPI
@@ -129,25 +130,35 @@ def generate_audio(file: str, openai_api_key: str = None) -> bytes:
 
     logger.info(f"Generated {characters} characters of audio")
 
-    temporary_directory = "./gradio_cached_examples/tmp/"
-    os.makedirs(temporary_directory, exist_ok=True)
+    # Get the original filename without extension
+    input_filename = Path(file).stem
+    
+    # Create a sanitized version of the filename
+    safe_filename = "".join(c if c.isalnum() or c in ('-', '_') else '-' if c.isspace() else ''
+                           for c in input_filename).rstrip('-')
+    
+    # Create output directory if it doesn't exist
+    output_directory = "./gradio_cached_examples/audio/"
+    os.makedirs(output_directory, exist_ok=True)
 
-    # we use a temporary file because Gradio's audio component doesn't work with raw bytes in Safari
-    temporary_file = NamedTemporaryFile(
-        dir=temporary_directory,
-        delete=False,
-        suffix=".mp3",
-    )
-    temporary_file.write(audio)
-    temporary_file.close()
+    # Create output filepath with timestamp to ensure uniqueness
+    timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+    output_filepath = os.path.join(output_directory, f"{safe_filename}_{timestamp}.mp3")
+    
+    # Write the audio to the file
+    with open(output_filepath, "wb") as f:
+        f.write(audio)
 
-    # Delete any files in the temp directory that end with .mp3 and are over a day old
-    for file in glob.glob(f"{temporary_directory}*.mp3"):
+    # Clean up old files (files over a day old)
+    for file in glob.glob(f"{output_directory}*.mp3"):
         if os.path.isfile(file) and time.time() - os.path.getmtime(file) > 24 * 60 * 60:
             os.remove(file)
 
-    return temporary_file.name, transcript
+    return output_filepath, transcript
 
+
+# Load environment variables
+load_dotenv()
 
 demo = gr.Interface(
     title="PDF to Podcast",
@@ -173,7 +184,6 @@ demo = gr.Interface(
     cache_examples="lazy",
     api_name=False,
 )
-
 
 demo = demo.queue(
     max_size=20,
